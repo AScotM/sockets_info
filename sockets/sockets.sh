@@ -1,9 +1,21 @@
 #!/bin/bash
+#
+# ss-to-json.sh
+# Convert `ss -tunp` output to JSON
+#
 
-# Get raw socket data
+set -euo pipefail
+
+# Check if `ss` supports --json
+if ss --help 2>&1 | grep -q -- "--json"; then
+    # Direct JSON output available
+    ss -tunp --json | jq '.'
+    exit 0
+fi
+
+# Fallback to AWK parser if --json not supported
 RAW_DATA=$(ss -tunp)
 
-# Convert to JSON
 echo "$RAW_DATA" | awk '
 BEGIN {
     print "["
@@ -15,12 +27,21 @@ NR > 1 {  # Skip header line
     }
     first_entry = 0
 
-    # Extract fields (adjust based on your `ss` output)
+    # Extract fields (fragile but works for default `ss -tunp`)
     proto = $1
     state = $2
     local_ip_port = $5
     peer_ip_port = $6
-    process = substr($0, index($0,$7))  # Everything after column 6
+
+    # Process info may be missing
+    process = ""
+    if (NF >= 7) {
+        process = substr($0, index($0,$7))
+    }
+
+    # Escape quotes and backslashes for JSON safety
+    gsub(/\\/,"\\\\",process)
+    gsub(/"/,"\\\"",process)
 
     # Print JSON entry
     printf "  {\n"
@@ -34,4 +55,4 @@ NR > 1 {  # Skip header line
 END {
     print "\n]"
 }
-' | jq '.'  # Pretty-print JSON (requires `jq`)
+' | jq '.'   # Pretty-print JSON
